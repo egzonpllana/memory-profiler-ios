@@ -336,7 +336,6 @@ The `Memory Profiler SDK` provides enterprise-grade memory monitoring with:
 - ✅ **No #if DEBUG needed** (automatic conditional compilation)
 - ✅ **Real system APIs** (accurate memory data)
 - ✅ **Device-aware thresholds** (70% of RAM)
-- ✅ **Simple logging** (print statements)
 - ✅ **Easy integration** (DI-ready)
 
 Use it to ensure your app never crashes due to memory issues and maintains optimal performance! 🚀 
