@@ -1,17 +1,6 @@
-# 🫆Memory Profiler SDK
+# 🫆 Memory Profiler SDK
 
 A production-grade memory profiling service for iOS applications that provides real-time memory monitoring, leak detection, and memory usage analytics.
-
-## 🎯 What It Is
-
-The `Memory Profiler SDK` is a comprehensive memory monitoring solution designed for enterprise-level iOS applications. It uses system-level APIs (`mach_task_basic_info`) to provide accurate memory statistics and helps developers identify memory issues during development.
-
-## 🚀 Why It Exists
-
-- **Memory Leaks**: Detect ViewModels, Services, or other objects that aren't being deallocated properly
-- **Performance Monitoring**: Track memory usage during heavy operations (image processing, networking)
-- **Optimization**: Before/after refactoring to measure improvements
-- **Production Readiness**: Ensure your app doesn't crash due to memory issues
 
 ## 🛠️ Features
 
@@ -35,10 +24,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         memoryProfilerService.startMonitoring()
         return true
-    }
-    
-    func applicationWillTerminate(_ application: UIApplication) {
-        memoryProfilerService.stopMonitoring()
     }
 }
 ```
@@ -101,29 +86,6 @@ func processLargeImages() {
 ```
 
 ## 🎛️ Customization Options
-
-### **Runtime Configuration**
-
-```swift
-// Initialize with custom settings
-let profiler = MemoryProfilerService(
-    isEnabled: true,           // Enable the service
-    environment: .debugOnly    // Only run in debug builds
-)
-
-// Runtime control
-profiler.disable()        // Turn off monitoring
-profiler.enable()         // Turn on monitoring
-
-// Status checks
-if profiler.isServiceEnabled {
-    // Service is active
-}
-
-if profiler.environment == .debugOnly {
-    // Service only runs in debug builds
-}
-```
 
 ### **Memory Warning Threshold**
 
@@ -196,12 +158,6 @@ The service can be used directly without dependency injection:
 private var memoryProfilerService = MemoryProfilerService()
 ```
 
-### **Zero Production Impact**
-
-- **Debug builds**: Full implementation with real monitoring
-- **Release builds**: Stub implementation (no-op, zero performance impact)
-- **No #if DEBUG needed**: Automatic conditional compilation
-
 ## 🚨 Best Practices
 
 ### **1. Strategic Logging**
@@ -219,16 +175,7 @@ func everyMethod() {
 }
 ```
 
-### **2. Combine with Deinit Logging**
-```swift
-deinit {
-    log("MyViewModel deallocated")  // Track object lifecycle
-    currentTask?.cancel()
-    cancellables.removeAll()
-}
-```
-
-### **3. Monitor Specific Operations**
+### **2. Monitor Specific Operations**
 ```swift
 func loadContacts() {
     memoryProfilerService.logMemoryUsage(context: "Before loading contacts")
@@ -263,35 +210,6 @@ func loadContacts() {
 2. Check for memory spikes during image processing
 3. Verify memory cleanup after operations
 
-## 📈 Advanced Usage
-
-### **Runtime Configuration Management**
-```swift
-// Conditional enabling based on build configuration
-#if DEBUG
-memoryProfilerService.enable()
-#else
-memoryProfilerService.disable()
-#endif
-
-// Feature flag integration
-if featureFlags.isMemoryProfilingEnabled {
-    memoryProfilerService.enable()
-} else {
-    memoryProfilerService.disable()
-}
-```
-
-### **Custom Memory Thresholds**
-```swift
-// Set different thresholds for different devices
-#if targetEnvironment(simulator)
-memoryProfilerService.setMemoryWarningThreshold(512 * 1024 * 1024) // 512MB for simulator
-#else
-memoryProfilerService.setMemoryWarningThreshold(1024 * 1024 * 1024) // 1GB for device
-#endif
-```
-
 ### **Memory Statistics Analysis**
 ```swift
 let stats = memoryProfilerService.getMemoryStats()
@@ -312,20 +230,6 @@ for leak in leaks {
     logError("Potential leak: \(leak.objectType) - \(leak.objectCount) objects")
 }
 ```
-
-## 🚀 Advanced Features
-
-### **System Integration**
-- **Memory Warnings**: Automatically detects system memory warnings
-- **Background Monitoring**: Continues monitoring during app lifecycle
-- **Crash Prevention**: Helps identify memory issues before crashes
-
-### **Development Workflow**
-1. **Start monitoring** in AppDelegate
-2. **Log before/after** heavy operations
-3. **Monitor deinit** calls for proper cleanup
-4. **Check logs** for memory warnings
-5. **Optimize** based on findings
 
 ## 🎯 Summary
 
