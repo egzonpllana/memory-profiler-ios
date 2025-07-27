@@ -30,7 +30,7 @@ The `Memory Profiler SDK` is a comprehensive memory monitoring solution designed
 ```swift
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
-    @Injected private var memoryProfilerService: MemoryProfilerServicing
+    private var memoryProfilerService = MemoryProfilerService()
     
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         memoryProfilerService.startMonitoring()
@@ -68,7 +68,7 @@ print("Environment: \(profiler.environment)")
 
 ```swift
 final class MyViewModel: ObservableLoggableObject {
-    @Injected private var memoryProfilerService: MemoryProfilerServicing
+    private var memoryProfilerService = MemoryProfilerService()
     
     func loadData() {
         memoryProfilerService.logMemoryUsage(context: "Before loading data")
@@ -187,15 +187,13 @@ print("Usage: \(String(format: "%.2f", stats.memoryUsagePercentage))%")
 
 ## 🔧 Integration with Your App
 
-### **Dependency Injection**
+### **Simple Integration**
 
-The service is already registered in your DI container:
+The service can be used directly without dependency injection:
 
 ```swift
-// In InjectDependencies.swift
-container.register(with: .strong) { _ -> (any MemoryProfilerServicing) in
-    MemoryProfilerService()
-}
+// Direct instantiation
+private var memoryProfilerService = MemoryProfilerService()
 ```
 
 ### **Zero Production Impact**
@@ -315,12 +313,7 @@ for leak in leaks {
 }
 ```
 
-## 🏢 Enterprise Features
-
-### **Memory Thresholds by Device**
-- **iPhone SE (2GB)**: ~1.4GB warning threshold
-- **iPhone 15 Pro Max (8GB)**: ~5.6GB warning threshold
-- **iPad Pro (16GB)**: ~11.2GB warning threshold
+## 🚀 Advanced Features
 
 ### **System Integration**
 - **Memory Warnings**: Automatically detects system memory warnings
