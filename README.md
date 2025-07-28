@@ -6,11 +6,9 @@ A production-grade memory profiling service for iOS applications that provides r
 
 - **Real-time monitoring** using `mach_task_basic_info`
 - **Device-aware thresholds** (70% of device RAM by default)
-- **Leak detection** for ViewModels and Services
-- **Simple logging** with print statements
+- **Leak detection** for ViewModels, Services, etc.
 - **Configurable runtime** - enable/disable at runtime
-- **Environment configuration** - can be configured to run in debug-only or all builds
-- **No #if DEBUG needed** - automatic conditional compilation
+- **Environment configuration** - can be configured to run in debug-only or all builds. No `#if DEBUG` needed, it has automatic conditional compilation.
 
 ## 📱 How to Use
 
