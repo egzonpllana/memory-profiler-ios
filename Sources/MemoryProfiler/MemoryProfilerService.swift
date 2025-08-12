@@ -60,7 +60,7 @@ public final class MemoryProfilerService: MemoryProfilerServicing {
         
         let total = MemoryProfilerService.totalMemory()
         memoryWarningThreshold = UInt64(Double(total) * 0.7)
-        print("Memory warning threshold set to \(memoryWarningThreshold / 1024 / 1024)MB (70% of \(total / 1024 / 1024)MB total)")
+        print("Memory warning threshold set to \(memoryWarningThreshold.inMB)MB (70% of \(total.inMB)MB total)")
     }
     
     // MARK: - Public Methods
@@ -131,14 +131,14 @@ public final class MemoryProfilerService: MemoryProfilerServicing {
         
         let stats = getMemoryStats()
         let contextMessage = context.isEmpty ? "" : " [\(context)]"
-        print("🧠 Memory usage: \(String(format: "%.2f", stats.memoryUsagePercentage))% (used: \(stats.usedMemory / 1024 / 1024)MB, available: \(stats.availableMemory / 1024 / 1024)MB, total: \(stats.totalMemory / 1024 / 1024)MB)\(contextMessage)")
+        print("🧠 Memory usage: \(String(format: "%.2f", stats.memoryUsagePercentage))% (used: \(stats.usedMemory.inMB)MB, available: \(stats.availableMemory.inMB)MB, total: \(stats.totalMemory.inMB)MB)\(contextMessage)")
     }
     
     public func setMemoryWarningThreshold(_ threshold: UInt64) {
         guard shouldRun() else { return }
         
         memoryWarningThreshold = threshold
-        print("Set memory warning threshold to \(threshold / 1024 / 1024)MB")
+        print("Set memory warning threshold to \(threshold.inMB)MB")
     }
     
     /// Enables the memory profiler service.
@@ -195,9 +195,9 @@ public final class MemoryProfilerService: MemoryProfilerServicing {
         let stats = getMemoryStats()
         
         if stats.usedMemory > memoryWarningThreshold {
-            print("⚠️ WARNING: Memory usage exceeded threshold: \(stats.usedMemory / 1024 / 1024)MB > \(memoryWarningThreshold / 1024 / 1024)MB")
+            print("⚠️ WARNING: Memory usage exceeded threshold: \(stats.usedMemory.inMB)MB > \(memoryWarningThreshold.inMB)MB")
         } else {
-            print("🧠 Periodic memory check: \(stats.usedMemory / 1024 / 1024)MB used")
+            print("🧠 Periodic memory check: \(stats.usedMemory.inMB)MB used")
         }
     }
     
