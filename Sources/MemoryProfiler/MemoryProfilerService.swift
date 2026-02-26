@@ -6,178 +6,170 @@
 //
 
 import Foundation
-import MachO
-import Darwin
 
-/// Production-grade memory profiling service implementation.
+/// Production-grade memory profiling service.
 ///
-/// This service provides enterprise-level memory monitoring using system APIs
-/// and integrates with the app's logging system for consistent output.
+/// Thin facade that coordinates monitoring, leak detection, scheduling,
+/// and logging through injected components. All mutable state is
+/// protected by `UnfairLock` for thread safety.
 public final class MemoryProfilerService: MemoryProfilerServicing {
-    
+
     // MARK: - Properties
-    
-    /// Whether memory monitoring is currently active
-    private var isMonitoring = false
-    
-    /// Whether the service is enabled (can be toggled at runtime)
-    private var isEnabled: Bool
-    
-    /// The environment configuration for the service
-    public private(set) var environment: MemoryProfilerEnvironment
-    
-    /// Memory threshold that triggers warnings (in bytes)
+
+    private let monitor: MemoryMonitoring
+    private let scheduler: MonitoringScheduling
+    private let leakDetector: LeakDetecting
+    private let logger: MemoryLogging
+    private let lock = UnfairLock()
+
+    private var state: MonitoringState
     private var memoryWarningThreshold: UInt64 = 0
-    
-    /// Highest memory usage recorded since monitoring started
     private var peakMemoryUsage: UInt64 = 0
-    
-    /// History of memory statistics for trend analysis
-    private var memoryHistory: [MemoryStats] = []
-    
-    /// Timer for periodic memory checks
-    private var leakDetectionTimer: Timer?
-    
-    /// Count of different object types for leak detection
-    private var objectCounts: [String: Int] = [:]
-    
+
+    /// The environment configuration for the service.
+    public let environment: MemoryProfilerEnvironment
+
     // MARK: - Initialization
-    
-    /// Creates a new memory profiler service.
+
+    /// Creates a memory profiler service with default components.
     ///
-    /// Automatically sets the warning threshold to 70% of device RAM,
-    /// which is the industry standard for memory warning thresholds.
+    /// Sets the warning threshold to 70% of device RAM.
     ///
     /// - Parameters:
-    ///   - isEnabled: Whether the service should be enabled by default (default: true)
-    ///   - environment: The environment configuration for the service (default: .debugOnly)
+    ///   - isEnabled: Whether the service starts enabled. Default is true.
+    ///   - environment: Build environment gating. Default is `.debugOnly`.
+    ///   - monitor: Memory reader. Default is `SystemMemoryMonitor`.
+    ///   - scheduler: Periodic timer. Default is `TimerBasedScheduler`.
+    ///   - leakDetector: Leak tracker. Default is `WeakReferenceTracker`.
+    ///   - logger: Log output. Default is `ConsoleMemoryLogger`.
     public init(
         isEnabled: Bool = true,
-        environment: MemoryProfilerEnvironment = .debugOnly
+        environment: MemoryProfilerEnvironment = .debugOnly,
+        monitor: MemoryMonitoring = SystemMemoryMonitor(),
+        scheduler: MonitoringScheduling = TimerBasedScheduler(),
+        leakDetector: LeakDetecting = WeakReferenceTracker(),
+        logger: MemoryLogging = ConsoleMemoryLogger()
     ) {
-        self.isEnabled = isEnabled
         self.environment = environment
-        
-        let total = MemoryProfilerService.totalMemory()
-        memoryWarningThreshold = UInt64(Double(total) * 0.7)
-        print("Memory warning threshold set to \(memoryWarningThreshold / 1024 / 1024)MB (70% of \(total / 1024 / 1024)MB total)")
+        self.state = isEnabled ? .idle : .disabled
+        self.monitor = monitor
+        self.scheduler = scheduler
+        self.leakDetector = leakDetector
+        self.logger = logger
+        configureDefaultThreshold()
     }
-    
-    // MARK: - Public Methods
-    
+}
+
+// MARK: - MemoryProfilerServicing
+
+extension MemoryProfilerService {
+
     public func startMonitoring() {
         guard shouldRun() else { return }
-        guard !isMonitoring else { return }
-        
-        isMonitoring = true
-        print("🧠 Memory Profiler: Started monitoring")
-        
-        // Start periodic memory checks every 60 seconds (reduced frequency)
-        leakDetectionTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
+        let alreadyMonitoring = lock.withLock {
+            guard state == .idle else { return true }
+            state = .monitoring
+            return false
+        }
+        guard !alreadyMonitoring else { return }
+        logger.log("Started monitoring")
+        scheduler.start(interval: 60.0) { [weak self] in
             self?.performMemoryCheck()
         }
-        
-        // Note: System memory warnings are handled differently in Swift Package
-        // For now, we'll rely on periodic checks
-    }
-    
-    public func stopMonitoring() {
-        guard shouldRun() else { return }
-        guard isMonitoring else { return }
-        
-        isMonitoring = false
-        print("🧠 Memory Profiler: Stopped monitoring")
-        
-        leakDetectionTimer?.invalidate()
-        leakDetectionTimer = nil
-        
-        // Memory warning observer cleanup not needed in Swift Package
-    }
-    
-    public func getMemoryStats() -> MemoryStats {
-        guard shouldRun() else {
-            return MemoryStats(usedMemory: 0, availableMemory: 0, totalMemory: 0, peakMemoryUsage: 0)
-        }
-        
-        let used = MemoryProfilerService.currentMemoryUsage()
-        let total = MemoryProfilerService.totalMemory()
-        let available = total > used ? total - used : 0
-        
-        let stats = MemoryStats(
-            usedMemory: used,
-            availableMemory: available,
-            totalMemory: total,
-            peakMemoryUsage: peakMemoryUsage
-        )
-        
-        // Update peak memory usage
-        if used > peakMemoryUsage {
-            peakMemoryUsage = used
-        }
-        
-        return stats
-    }
-    
-    public func detectMemoryLeaks() -> [MemoryLeakInfo] {
-        guard shouldRun() else { return [] }
-        
-        // TODO: Implement real leak detection using runtime introspection
-        // For now, return empty array
-        return []
-    }
-    
-    public func logMemoryUsage(context: String = "") {
-        guard shouldRun() else { return }
-        
-        let stats = getMemoryStats()
-        let contextMessage = context.isEmpty ? "" : " [\(context)]"
-        print("🧠 Memory usage: \(String(format: "%.2f", stats.memoryUsagePercentage))% (used: \(stats.usedMemory / 1024 / 1024)MB, available: \(stats.availableMemory / 1024 / 1024)MB, total: \(stats.totalMemory / 1024 / 1024)MB)\(contextMessage)")
-    }
-    
-    public func setMemoryWarningThreshold(_ threshold: UInt64) {
-        guard shouldRun() else { return }
-        
-        memoryWarningThreshold = threshold
-        print("Set memory warning threshold to \(threshold / 1024 / 1024)MB")
-    }
-    
-    /// Enables the memory profiler service.
-    ///
-    /// This will allow the service to start monitoring and logging memory usage.
-    /// If monitoring was previously stopped, it will not automatically restart.
-    public func enable() {
-        isEnabled = true
-        print("🧠 Memory Profiler: Enabled")
-    }
-    
-    /// Disables the memory profiler service.
-    ///
-    /// This will stop all monitoring activities and clear any active timers.
-    /// The service will not perform any operations until re-enabled.
-    public func disable() {
-        isEnabled = false
-        
-        // Stop monitoring if it was active
-        if isMonitoring {
-            stopMonitoring()
-        }
-        
-        print("🧠 Memory Profiler: Disabled")
-    }
-    
-    /// Returns whether the service is currently enabled.
-    public var isServiceEnabled: Bool {
-        return isEnabled
     }
 
-    // MARK: - Private Methods
-    
-    /// Determines whether the service should run based on enabled state and environment configuration.
+    public func stopMonitoring() {
+        guard shouldRun() else { return }
+        let wasMonitoring = lock.withLock {
+            guard state == .monitoring else { return false }
+            state = .idle
+            return true
+        }
+        guard wasMonitoring else { return }
+        scheduler.stop()
+        logger.log("Stopped monitoring")
+    }
+
+    public func getMemoryStats() -> MemoryStats {
+        guard shouldRun() else {
+            return MemoryStats(
+                usedMemory: 0,
+                availableMemory: 0,
+                totalMemory: 0,
+                peakMemoryUsage: 0
+            )
+        }
+        return buildCurrentStats()
+    }
+
+    public func detectMemoryLeaks() -> [MemoryLeakInfo] {
+        guard shouldRun() else { return [] }
+        return leakDetector.checkForLeaks()
+    }
+
+    public func logMemoryUsage(context: String) {
+        guard shouldRun() else { return }
+        logFormattedStats(context: context)
+    }
+
+    public func setMemoryWarningThreshold(_ threshold: UInt64) {
+        guard shouldRun() else { return }
+        lock.withLock { memoryWarningThreshold = threshold }
+        logger.log("Threshold set to \(threshold / 1024 / 1024)MB")
+    }
+
+    public func trackObject(
+        _ object: AnyObject,
+        expectedLifetime: ObjectLifetime
+    ) {
+        guard shouldRun() else { return }
+        leakDetector.trackObject(object, expectedLifetime: expectedLifetime)
+    }
+
+    @discardableResult
+    public func removeTracking(for object: AnyObject) -> Bool {
+        guard shouldRun() else { return false }
+        return leakDetector.removeTracking(for: object)
+    }
+
+    /// Enables the memory profiler service.
+    ///
+    /// Transitions the service from disabled to idle state.
+    /// Does not automatically restart monitoring.
+    public func enable() {
+        lock.withLock {
+            if state == .disabled { state = .idle }
+        }
+        logger.log("Enabled")
+    }
+
+    /// Disables the memory profiler service.
+    ///
+    /// Stops all monitoring activities and transitions to disabled state.
+    /// The service will not perform any operations until re-enabled.
+    public func disable() {
+        let wasMonitoring = lock.withLock {
+            let monitoring = state == .monitoring
+            state = .disabled
+            return monitoring
+        }
+        if wasMonitoring { scheduler.stop() }
+        logger.log("Disabled")
+    }
+
+    /// Whether the service is currently enabled.
+    public var isServiceEnabled: Bool {
+        lock.withLock { state != .disabled }
+    }
+}
+
+// MARK: - Private Methods
+
+extension MemoryProfilerService {
+
     private func shouldRun() -> Bool {
-        // Check if service is enabled
-        guard isEnabled else { return false }
-        
-        // Check environment configuration
+        let currentState = lock.withLock { state }
+        guard currentState != .disabled else { return false }
         switch environment {
         case .debugOnly:
             #if DEBUG
@@ -189,55 +181,61 @@ public final class MemoryProfilerService: MemoryProfilerServicing {
             return true
         }
     }
-    
-    /// Performs a periodic memory check and logs warnings if needed.
+
+    private func configureDefaultThreshold() {
+        let total = monitor.totalMemory()
+        memoryWarningThreshold = UInt64(Double(total) * 0.7)
+        let thresholdMB = memoryWarningThreshold / 1024 / 1024
+        let totalMB = total / 1024 / 1024
+        logger.log(
+            "Threshold set to \(thresholdMB)MB"
+            + " (70% of \(totalMB)MB total)"
+        )
+    }
+
+    private func buildCurrentStats() -> MemoryStats {
+        let used = monitor.currentMemoryUsage()
+        let total = monitor.totalMemory()
+        let available = total > used ? total - used : 0
+        let peak = lock.withLock {
+            if used > peakMemoryUsage { peakMemoryUsage = used }
+            return peakMemoryUsage
+        }
+        return MemoryStats(
+            usedMemory: used,
+            availableMemory: available,
+            totalMemory: total,
+            peakMemoryUsage: peak
+        )
+    }
+
+    private func logFormattedStats(context: String) {
+        let stats = getMemoryStats()
+        let suffix = context.isEmpty ? "" : " [\(context)]"
+        let pct = String(format: "%.2f", stats.memoryUsagePercentage)
+        let usedMB = stats.usedMemory / 1024 / 1024
+        let availMB = stats.availableMemory / 1024 / 1024
+        let totalMB = stats.totalMemory / 1024 / 1024
+        logger.log(
+            "Memory: \(pct)% (used: \(usedMB)MB,"
+            + " available: \(availMB)MB,"
+            + " total: \(totalMB)MB)\(suffix)"
+        )
+    }
+
     private func performMemoryCheck() {
         let stats = getMemoryStats()
-        
-        if stats.usedMemory > memoryWarningThreshold {
-            print("⚠️ WARNING: Memory usage exceeded threshold: \(stats.usedMemory / 1024 / 1024)MB > \(memoryWarningThreshold / 1024 / 1024)MB")
+        let usedMB = stats.usedMemory / 1024 / 1024
+        let threshold = lock.withLock { memoryWarningThreshold }
+        if stats.usedMemory > threshold {
+            let thresholdMB = threshold / 1024 / 1024
+            logger.logWarning(
+                "Memory exceeded threshold:"
+                + " \(usedMB)MB > \(thresholdMB)MB"
+            )
         } else {
-            print("🧠 Periodic memory check: \(stats.usedMemory / 1024 / 1024)MB used")
+            logger.log("Periodic check: \(usedMB)MB used")
         }
+        leakDetector.purgeReleasedObjects()
     }
-    
-    /// Handles system memory warnings.
-    private func handleMemoryWarning() {
-        print("⚠️ Received system memory warning!")
-    }
-    
-    // MARK: - System Memory APIs
-    
-    /// Gets the current memory usage of the app process.
-    ///
-    /// Uses `mach_task_basic_info` to get the resident size of the current process.
-    /// This is the most accurate way to measure memory usage on iOS.
-    ///
-    /// - Returns: Current memory usage in bytes
-    private static func currentMemoryUsage() -> UInt64 {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-        
-        let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
-                task_info(
-                    mach_task_self_,
-                    task_flavor_t(MACH_TASK_BASIC_INFO),
-                    $0,
-                    &count
-                )
-            }
-        }
-        
-        return kerr == KERN_SUCCESS ? UInt64(info.resident_size) : 0
-    }
-    
-    /// Gets the total physical memory on the device.
-    ///
-    /// Uses `ProcessInfo.processInfo.physicalMemory` to get the total RAM.
-    ///
-    /// - Returns: Total device memory in bytes
-    private static func totalMemory() -> UInt64 {
-        return ProcessInfo.processInfo.physicalMemory
-    }
-} 
+}

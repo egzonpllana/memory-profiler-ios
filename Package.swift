@@ -22,5 +22,9 @@ let package = Package(
             name: "MemoryProfiler",
             dependencies: []
         ),
+        .testTarget(
+            name: "MemoryProfilerTests",
+            dependencies: ["MemoryProfiler"]
+        ),
     ]
-) 
+)

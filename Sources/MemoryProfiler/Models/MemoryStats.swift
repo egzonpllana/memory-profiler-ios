@@ -12,7 +12,7 @@ import Foundation
 /// This struct provides comprehensive memory information including
 /// used memory, available memory, total device memory, and usage percentages.
 /// All values are in bytes and represent real-time system data.
-public struct MemoryStats {
+public struct MemoryStats: Sendable {
 
     /// Memory currently used by the app process (resident size)
     public let usedMemory: UInt64

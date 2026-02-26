@@ -11,7 +11,7 @@ import Foundation
 ///
 /// This struct provides details about potential memory leaks including
 /// the type of object, count, memory size, and when it was detected.
-public struct MemoryLeakInfo {
+public struct MemoryLeakInfo: Sendable {
 
     /// Type of object that might be leaking
     public let objectType: String
