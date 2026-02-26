@@ -39,7 +39,7 @@ public enum MemoryProfilerEnvironment: Sendable {
 /// // Check for leaks
 /// let leaks = profiler.detectMemoryLeaks()
 /// ```
-public protocol MemoryProfilerServicing: AnyObject {
+public protocol MemoryProfilerServicing: AnyObject, Sendable {
 
     /// Starts periodic memory monitoring.
     func startMonitoring()

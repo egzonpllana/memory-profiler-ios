@@ -12,7 +12,7 @@ import Foundation
 /// Thin facade that coordinates monitoring, leak detection, scheduling,
 /// and logging through injected components. All mutable state is
 /// protected by `UnfairLock` for thread safety.
-public final class MemoryProfilerService: MemoryProfilerServicing {
+public final class MemoryProfilerService: MemoryProfilerServicing, @unchecked Sendable {
 
     // MARK: - Properties
 
