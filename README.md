@@ -32,6 +32,7 @@ It asks one question: *did this object die when its scope ended?* That is differ
 - [Objective-C](#objective-c)
 - [Showcase app](#showcase-app)
 - [How it works](#how-it-works)
+- [Safety](#safety)
 - [Limitations](#limitations)
 - [Migrating from 2.x](#migrating-from-2x)
 
@@ -339,9 +340,28 @@ Sources/MemoryProfilerNative/   C: malloc zone walker (census, referrer scan) an
 - **Deadline checks run on the main thread.** The temporary strong reference taken during the check can then never be the last one released off the main thread, which UIKit objects forbid.
 - **The heap walk locks each malloc zone in turn.** The per-block callback is plain C and never allocates. The profiler stores the addresses of tracked objects bit-inverted, as the Objective-C runtime does, so its own bookkeeping never shows up as a referrer.
 
+## Safety
+
+MemoryProfiler is built not to take your app down, including when it is misused. Every path below was reproduced in a simulator before it was fixed, and each one has a regression test.
+
+- **No references to tracked objects.** Deallocation is observed through a sentinel, so `expectDeallocation(of:)` and `trackInstance(_:budget:)` are safe from any thread and even from the object's own `deinit`. Forming a weak reference to an Objective-C object that is deallocating aborts the process, and the profiler never does it.
+- **Actors are supported.** Actors and distributed actors abort when given an associated object, so they are tracked with a weak reference instead. They do not produce late-release events, and `trackInstance` ignores them.
+- **Invalid configuration values are clamped instead of trapping.** This covers NaN or infinite threshold fractions, extreme intervals and grace periods, growth policies with huge counts or a zero sample interval, non-finite intervals from Objective-C, and overflowing byte totals.
+- **Client code never runs under a lock.** Loggers, event handlers and stream consumers may call back into the profiler, start or stop it, or cancel subscriptions.
+- **Off-main lifecycle calls are ignored.** If code calls `viewDidDisappear` off the main queue, the UIKit hook skips tracking. It does not hit the Swift 6 isolation check.
+- **Objective-C misuse is harmless.** `[MPLeakReport new]` returns an empty report instead of trapping.
+
+What remains intentional or outside the profiler's control:
+
+- `.assertionFailure` stops debug builds on purpose. `.breakpoint` pauses only when a debugger is attached; it checks right before raising.
+- Heap census, growth detection and retention analysis lock each malloc zone in turn and read the heap in-process. Zones are validated before use and the code is compiled into debug builds only, but these are the most invasive features: they are opt-in and pause allocating threads while they run.
+- Another library that swizzles `viewDidDisappear(_:)` and depends on the selector it was called with (`_cmd`) can conflict with any other swizzler, this one included.
+- Code that removes all associated objects from a tracked object (`objc_removeAssociatedObjects`) ends its tracking early.
+
 ## Limitations
 
 - Instances of generic classes are not counted by the census, because their runtime-created metadata is not listed by the Objective-C runtime. They can still be leak-checked by expectation.
+- Actors are leak-checked by expectation, but report no late releases and are ignored by instance budgets.
 - Retention analysis is a conservative scan, not a precise graph: confirm cycles in the Debug Memory Graph.
 - Automatic tracking cannot tell a removed controller that is cached on purpose from a leaked one. Opt such controllers out with `LeakDetectionExempt` or `ignoredTypeNames`.
 - AppKit has no automatic tracking. On macOS, use expectations, budgets, census and monitoring.
