@@ -18,9 +18,13 @@ struct ServiceHarness {
     let executor = ManualDelayedExecutor()
     let heapCensus = MockHeapCensus()
     let automaticTracking = MockAutomaticTracking()
-    let logger = MockMemoryLogger()
+    let logger: any MemoryLogging
 
-    init(configuration: MemoryProfilerConfiguration = MemoryProfilerConfiguration(environment: .all)) {
+    init(
+        configuration: MemoryProfilerConfiguration = MemoryProfilerConfiguration(environment: .all),
+        logger: any MemoryLogging = MockMemoryLogger()
+    ) {
+        self.logger = logger
         let dependencies = MemoryProfilerDependencies(
             memoryReader: reader,
             monitoringScheduler: monitoringScheduler,

@@ -74,8 +74,9 @@ final class MemoryProfilerServiceTests: XCTestCase {
     func testLogMemoryUsageIncludesContext() {
         let harness = ServiceHarness()
         harness.service.logMemoryUsage(context: "after import")
+        let messages = (harness.logger as? MockMemoryLogger)?.messages ?? []
 
-        XCTAssertTrue(harness.logger.messages.contains { $0.contains("footprint") && $0.contains("[after import]") })
+        XCTAssertTrue(messages.contains { $0.contains("footprint") && $0.contains("[after import]") })
     }
 
     func testThresholdEventIsDeliveredToHandler() {

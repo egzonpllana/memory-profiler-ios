@@ -34,7 +34,8 @@ final class LeakRetentionFlowTests: XCTestCase {
         let cycle = harness.publisher.detectedLeaks.first?.retention?.cycle
         let expected = "MemoryProfilerTests.TrackedViewModel.onUpdate -> MemoryProfilerTests.TrackedViewModel"
         XCTAssertEqual(cycle?.description, expected)
-        XCTAssertFalse(harness.scanner.ignoredBlocks.isEmpty)
+        // Sentinel-observed objects are tracked without any reference, so there is nothing to ignore.
+        XCTAssertTrue(harness.scanner.ignoredBlocks.isEmpty)
     }
 
     func testObjectReleasedDuringAnalysisIsNotReported() {
