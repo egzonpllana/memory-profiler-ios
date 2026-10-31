@@ -1,0 +1,44 @@
+included:
+  - Sources
+  - Tests
+  - Example
+
+excluded:
+  - .build
+
+opt_in_rules:
+  - closure_body_length
+
+closure_body_length:
+  warning: 20
+
+cyclomatic_complexity:
+  warning: 4
+  error: 4
+  # A switch over an enum is one decision, not one per case.
+  ignores_case_statements: true
+
+file_length:
+  warning: 150
+
+function_body_length:
+  warning: 20
+
+function_parameter_count:
+  warning: 6
+
+identifier_name:
+  min_length: 3
+  max_length: 40
+  excluded:
+    - id
+
+large_tuple:
+  warning: 2
+  error: 3
+
+line_length:
+  warning: 120
+
+type_body_length:
+  warning: 130
