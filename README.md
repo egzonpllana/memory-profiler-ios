@@ -1,6 +1,39 @@
 # MemoryProfiler
 
-Leak detection and memory monitoring for iOS and macOS apps. MemoryProfiler catches view controllers, views, SwiftUI models and any other object that outlives its scope. It names the retain cycle that keeps the object alive and flags classes that keep piling up. It also watches the footprint the way jetsam does.
+[![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](https://www.swift.org)
+[![Platforms](https://img.shields.io/badge/platforms-iOS%2016%2B%20%7C%20macOS%2013%2B-lightgrey)](#requirements)
+[![Swift Package Manager](https://img.shields.io/badge/SPM-compatible-brightgreen)](#installation)
+[![Release](https://img.shields.io/github/v/release/egzonpllana/memory-profiler-ios)](https://github.com/egzonpllana/memory-profiler-ios/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+Leak detection and memory monitoring for iOS and macOS apps. MemoryProfiler catches view controllers, views, SwiftUI models and any other object that outlives its scope. It names the retain cycle when there is one, flags classes that keep piling up, and watches the footprint the way jetsam does.
+
+It asks one question: *did this object die when its scope ended?* That is different from asking whether memory is still reachable. Instruments' Leaks and the memory graph's leak markers only find unreachable cycles. MemoryProfiler also catches the objects they never report: a view model kept alive by a timer, a running task, a notification observer or a global registry.
+
+<p align="center">
+  <img src="Docs/Images/showcase-scenarios.png" width="300" alt="Showcase app: leak scenarios grouped by feature">
+  &nbsp;&nbsp;
+  <img src="Docs/Images/showcase-events.png" width="300" alt="Showcase app: live events reported by the profiler">
+</p>
+
+## Contents
+
+- [Why MemoryProfiler?](#why-memoryprofiler)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Catching leaks](#catching-leaks)
+- [Events](#events)
+- [Debugging a leak](#debugging-a-leak)
+- [Footprint monitoring](#footprint-monitoring)
+- [Heap census](#heap-census)
+- [Configuration](#configuration)
+- [Objective-C](#objective-c)
+- [Showcase app](#showcase-app)
+- [How it works](#how-it-works)
+- [Limitations](#limitations)
+- [Migrating from 2.x](#migrating-from-2x)
 
 ## Why MemoryProfiler?
 
@@ -28,6 +61,10 @@ Every object checks in through an initializer and is meant to check out through 
 
 ## Installation
 
+In Xcode, choose **File > Add Package Dependencies…** and enter `https://github.com/egzonpllana/memory-profiler-ios`.
+
+Or add it to `Package.swift`:
+
 ```swift
 dependencies: [
     .package(url: "https://github.com/egzonpllana/memory-profiler-ios.git", from: "3.0.0")
@@ -39,18 +76,18 @@ dependencies: [
 ```swift
 import MemoryProfiler
 
-// AppDelegate / App init
+// In application(_:didFinishLaunchingWithOptions:) or your App initializer
 MemoryProfilerService.shared.start()
 ```
 
-That is all you need for UIKit. Pop or dismiss a screen that leaks, and two seconds later the console shows:
+That is all you need for UIKit. Pop a screen whose view model closure captures the screen strongly, and two seconds later the unified log shows this (verbatim output from the [showcase app](#showcase-app)):
 
 ```
-Leak: MyApp.OrderDetailViewController 0x103db2d00 (1280 bytes) is still alive 2.1s after its view controller
-was removed. Filter the Debug Memory Graph by 0x103db2d00.
+Leak: MemoryProfilerShowcase.LeakyDetailViewController 0x1021bb200 (1280 bytes) is still alive 2.1s after its view
+controller was removed. Filter the Debug Memory Graph by 0x1021bb200.
 ```
 
-By default the profiler runs only when the package is built in the debug configuration (`.debugOnly`).
+By default the profiler runs only when the package is built in the debug configuration (`.debugOnly`). In release builds every call is a no-op.
 
 ## Catching leaks
 
@@ -75,12 +112,21 @@ struct ProfileScreen: View {
     @StateObject private var model = ProfileModel()
 
     var body: some View {
-        content.detectLeaks(of: model)
+        Text(model.name)
+            .detectLeaks(of: model)
     }
 }
 ```
 
-When SwiftUI tears down the view's state, the model is expected to deallocate. The profiler comes from `EnvironmentValues.memoryProfiler`, which defaults to `.shared`.
+When SwiftUI tears down the view's state, the model is expected to deallocate. If something else still holds it, for example a global registry, the profiler reports it, even though reachability-based tools would not:
+
+```
+Leak: MemoryProfilerShowcase.ProfileModel 0x10cf0dd70 (48 bytes) is still alive 2.1s after its SwiftUI view left the
+hierarchy. Expected at MemoryProfilerShowcase/ProfileScreen.swift:36 in body. Filter the Debug Memory Graph by
+0x10cf0dd70. Referenced by (conservative scan): Swift._ContiguousArrayStorage<Swift.AnyObject>+32.
+```
+
+The profiler comes from `EnvironmentValues.memoryProfiler`, which defaults to `.shared`.
 
 ### Any object
 
@@ -88,7 +134,9 @@ Declare the end of an object's scope:
 
 ```swift
 func finishCheckout() {
-    MemoryProfilerService.shared.expectDeallocation(of: coordinator)
+    if let coordinator {
+        MemoryProfilerService.shared.expectDeallocation(of: coordinator)
+    }
     coordinator = nil
 }
 
@@ -96,7 +144,12 @@ func finishCheckout() {
 DeinitTracker.expectDeinit(of: coordinator, within: .seconds(5))
 ```
 
-The object is held weakly. Its deallocation is observed exactly, through an associated object, so nothing polls. The check runs on the main thread when the grace period ends. An object that is still alive is reported once. If it is released later, `leakResolved` reports how long it lingered.
+The object is held weakly. Its deallocation is observed exactly, through an associated object, so nothing polls. The check runs on the main thread when the grace period ends. An object that is still alive is reported once. If it is released later, `leakResolved` reports how long it lingered:
+
+```
+Late release: MemoryProfilerShowcase.ReceiptPrinter 0x104964430 deallocated 4.2s after the expectation; it was not
+a permanent leak.
+```
 
 ### Instance budgets
 
@@ -108,7 +161,12 @@ final class SessionManager {
 }
 ```
 
-When a second instance is alive at the same time, `instanceBudgetExceeded` is reported. It is reported again only after the count drops back within the budget.
+When a second instance is alive at the same time, `instanceBudgetExceeded` is reported. It is reported again only after the count drops back within the budget:
+
+```
+Instance budget exceeded: 2 live MemoryProfilerShowcase.SessionManager instances, budget 1. Latest tracked at
+MemoryProfilerShowcase/SessionManager.swift:14.
+```
 
 ### Retain cycle explanation (experimental)
 
@@ -121,11 +179,12 @@ MemoryProfilerService.shared.configure(configuration)
 Once a leak is confirmed, the profiler walks the malloc heap breadth first. It looks for blocks that point at the leaked object, then for blocks that point at those, and so on. If the chain leads back to the object, the cycle is reported. Field names come from the runtime's instance variable metadata.
 
 ```
-Possible retain cycle (conservative scan): MyApp.LeakyDetailViewController.viewModel
--> MyApp.DetailViewModel.onChange -> heap block (32 bytes) -> MyApp.LeakyDetailViewController.
+Possible retain cycle (conservative scan): MemoryProfilerShowcase.LeakyDetailViewController.viewModel
+-> MemoryProfilerShowcase.DetailViewModel.onChange -> heap block (32 bytes)
+-> MemoryProfilerShowcase.LeakyDetailViewController.
 ```
 
-When there is no cycle, the direct referrers are listed instead, for example `Swift._ContiguousArrayStorage<Swift.AnyObject>+32` for an object kept in a global array.
+When there is no cycle, the direct referrers are listed instead, as in the SwiftUI example above.
 
 The scan is conservative. Any pointer-sized word equal to the object's address counts as a reference, so Objective-C `weak` and Swift `unowned` references can show up as edges. Swift `weak` references are excluded exactly. Cycles that pass only through app classes and closure contexts are preferred over cycles through framework back-pointers. The scan runs in debug builds only and briefly pauses every allocating thread. Use it as a lead, and confirm in the Debug Memory Graph.
 
@@ -140,8 +199,10 @@ configuration.allocationGrowth = .enabled(
 Each sample counts the live instances of every application class. A class whose count increases in every sample of the window is reported once:
 
 ```
-Allocation growth: MyApp.ThumbnailCacheEntry instances 10 -> 20 -> 40 -> 60, holding 3.8 KB.
+Allocation growth: MemoryProfilerShowcase.ThumbnailCacheEntry instances 10 -> 30 -> 50 -> 70, holding 2 kB.
 ```
+
+`holding` counts each instance's own allocation only. Buffers the instances point to, such as array storage, are separate blocks.
 
 ## Events
 
@@ -183,12 +244,14 @@ With a debugger attached, the app pauses on the main thread when a leak is detec
 
 ```swift
 let stats = MemoryProfilerService.shared.currentStats()
-// footprint 412 MB, peak 530 MB, limit 2.9 GB (14%)
+print(stats?.description ?? "inactive")
+// On a device: footprint 412 MB, peak 530 MB, limit 2.9 GB (14%)
+
 MemoryProfilerService.shared.logMemoryUsage(context: "After import")
 ```
 
 - `footprint` is `phys_footprint`, the number jetsam and Xcode's memory gauge use, not `resident_size`.
-- `limit` is the footprint plus `limit_bytes_remaining`, which is the real per-process limit on iOS. macOS has no limit, so `limit` is `nil` there.
+- `limit` is the footprint plus `limit_bytes_remaining`, which is the real per-process limit on iOS. macOS and the Simulator have no limit, so `limit` is `nil` there and physical memory is used instead.
 - The default threshold is `.fractionOfLimit(0.8)`. It publishes one event when the footprint crosses the threshold and one when it recovers below 95% of it, never one per sample.
 
 ## Heap census
@@ -235,7 +298,7 @@ For dependency injection, create your own `MemoryProfilerService` and inject it 
 }];
 ```
 
-Automatic UIKit tracking works for Objective-C view controllers too.
+Automatic UIKit tracking works for Objective-C view controllers too. The leak handler runs on a background queue.
 
 ## Showcase app
 
@@ -251,7 +314,7 @@ Automatic UIKit tracking works for Objective-C view controllers too.
 
 Tap a scenario in the **Scenarios** tab. The **Events** tab shows what the profiler reports, live.
 
-Run every scenario unattended and read the transcript:
+To run every scenario unattended, install the app on a booted simulator and launch it with `-runAllScenarios`. The transcript is printed to the console:
 
 ```sh
 xcrun simctl launch --console-pty booted com.egzonpllana.MemoryProfilerShowcase -runAllScenarios
@@ -301,4 +364,4 @@ Sources/MemoryProfilerNative/   C: malloc zone walker (census, referrer scan) an
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+MemoryProfiler is available under the MIT license. See [LICENSE](LICENSE) for details.
