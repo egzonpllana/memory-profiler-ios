@@ -1,0 +1,37 @@
+name: MemoryProfilerShowcase
+options:
+  bundleIdPrefix: com.egzonpllana
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  MemoryProfiler:
+    path: ..
+targets:
+  MemoryProfilerShowcase:
+    type: application
+    platform: iOS
+    sources:
+      - MemoryProfilerShowcase
+    dependencies:
+      - package: MemoryProfiler
+    info:
+      path: MemoryProfilerShowcase/Info.plist
+      properties:
+        CFBundleDisplayName: Leak Showcase
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.egzonpllana.MemoryProfilerShowcase
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
