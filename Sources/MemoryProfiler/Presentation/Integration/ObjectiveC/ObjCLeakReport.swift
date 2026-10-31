@@ -30,6 +30,18 @@ public final class ObjCLeakReport: NSObject, Sendable {
 
     // MARK: - Initialization
 
+    /// Reports are created by MemoryProfiler. Calling `-init` or `+new` from Objective-C returns an empty
+    /// report instead of trapping, as Swift classes without an `init()` override do.
+    @available(*, unavailable, message: "Leak reports are created by MemoryProfiler.")
+    override public init() {
+        typeName = ""
+        address = ""
+        allocationSize = 0
+        reason = ""
+        summary = ""
+        super.init()
+    }
+
     init(report: LeakReport) {
         typeName = report.object.typeName
         address = report.object.address

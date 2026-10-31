@@ -26,7 +26,10 @@ public struct AllocationGrowthPolicy: Sendable, Equatable {
 
     // MARK: - Initialization
 
-    /// Creates an allocation growth policy. Counts below 1 are raised to 1.
+    /// Creates an allocation growth policy.
+    ///
+    /// Values are clamped to safe ranges: the sample interval to at least 1 second (each census
+    /// pauses allocating threads), consecutive increases to 1...1000, the minimum increase to at least 1.
     ///
     /// - Parameters:
     ///   - sampleInterval: Time between census samples. Defaults to 60 seconds.
@@ -39,8 +42,8 @@ public struct AllocationGrowthPolicy: Sendable, Equatable {
         minimumInstanceIncrease: Int = 5,
         scope: TypeScope = .applicationTypes
     ) {
-        self.sampleInterval = sampleInterval
-        self.consecutiveIncreases = max(1, consecutiveIncreases)
+        self.sampleInterval = max(sampleInterval, .seconds(1))
+        self.consecutiveIncreases = min(max(1, consecutiveIncreases), 1_000)
         self.minimumInstanceIncrease = max(1, minimumInstanceIncrease)
         self.scope = scope
     }

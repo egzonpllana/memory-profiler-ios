@@ -42,14 +42,18 @@ struct ThresholdEvaluator {
         }
     }
 
-    /// The threshold in bytes for a sample.
+    /// Fraction used when a configured fraction is NaN or infinite.
+    static let fallbackFraction = 0.8
+
+    /// The threshold in bytes for a sample. Fractions are clamped to 0...1; non-finite values use 0.8.
     static func thresholdBytes(for threshold: MemoryThreshold, stats: MemoryStats) -> UInt64 {
         switch threshold {
         case .bytes(let bytes):
             return bytes
         case .fractionOfLimit(let fraction):
             let base = stats.limit ?? stats.physicalMemory
-            return UInt64(Double(base) * min(max(fraction, 0), 1))
+            let safeFraction = fraction.isFinite ? min(max(fraction, 0), 1) : fallbackFraction
+            return UInt64.scaled(base, by: safeFraction)
         }
     }
 }

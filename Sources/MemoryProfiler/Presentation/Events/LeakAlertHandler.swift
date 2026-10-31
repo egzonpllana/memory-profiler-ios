@@ -27,8 +27,10 @@ struct LeakAlertHandler: Sendable {
                 assertionFailure("MemoryProfiler: \(message)")
             }
         case .breakpoint:
-            guard debuggerDetector.isDebuggerAttached else { return }
+            let detector = debuggerDetector
             DispatchQueue.main.async {
+                // Checked right before raising: SIGTRAP terminates a process with no debugger attached.
+                guard detector.isDebuggerAttached else { return }
                 // Paused here on purpose: open Debug Memory Graph and filter by the reported address.
                 raise(SIGTRAP)
             }

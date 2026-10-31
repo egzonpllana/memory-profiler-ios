@@ -20,6 +20,7 @@ public final class ObjCMemoryProfiler: NSObject {
     // MARK: - Properties
 
     private static let objectiveCLocation = SourceLocation(fileID: "Objective-C", line: 0, function: "")
+    private static let maximumGraceSeconds: TimeInterval = 31_536_000
     private static let leakSubscription = LockedState<EventSubscription?>(nil)
 
     private static var profiler: MemoryProfilerService {
@@ -52,11 +53,16 @@ public final class ObjCMemoryProfiler: NSObject {
         profiler.expectDeallocation(of: object, gracePeriod: nil, reason: .manual, location: objectiveCLocation)
     }
 
-    /// Declares that `object` should deallocate within `seconds`.
+    /// Declares that `object` should deallocate within `seconds`. NaN or infinite values use the
+    /// configured grace period; other values are clamped to 0...one year.
     @objc(expectDeallocationOf:within:)
     public static func expectDeallocation(of object: AnyObject, within seconds: TimeInterval) {
-        let gracePeriod = Duration.milliseconds(Int64(max(0, seconds) * 1000))
-        profiler.expectDeallocation(of: object, gracePeriod: gracePeriod, reason: .manual, location: objectiveCLocation)
+        profiler.expectDeallocation(
+            of: object,
+            gracePeriod: gracePeriod(seconds: seconds),
+            reason: .manual,
+            location: objectiveCLocation
+        )
     }
 
     /// Counts `object` toward its class's live instance budget. Call it from `init`.
@@ -69,6 +75,11 @@ public final class ObjCMemoryProfiler: NSObject {
     @objc(logMemoryUsageWithContext:)
     public static func logMemoryUsage(context: String) {
         profiler.logMemoryUsage(context: context)
+    }
+
+    private static func gracePeriod(seconds: TimeInterval) -> Duration? {
+        guard seconds.isFinite else { return nil }
+        return .milliseconds(Int64(min(max(seconds, 0), maximumGraceSeconds) * 1000))
     }
 
     /// Calls `handler` on a background queue for every detected leak. Pass `nil` to remove it.

@@ -23,9 +23,11 @@ final class InstanceBudgetTracker: Sendable {
 
     // MARK: - Public Methods
 
+    /// Actors are ignored: counting needs a deallocation sentinel, which actors cannot carry.
     func trackInstance(_ object: AnyObject, budget: Int, location: SourceLocation) {
         let descriptor = dependencies.inspector.describe(object)
-        guard descriptor.allocationSize > 0 else { return }
+        guard descriptor.allocationSize > 0,
+              dependencies.deallocationObserver.canObserveDeallocation(of: object) else { return }
         let address = DisguisedAddress(address: dependencies.inspector.address(of: object))
         let typeName = descriptor.typeName
         let outcome = registry.register(address, typeName: typeName, budget: budget)

@@ -24,12 +24,37 @@ static kern_return_t mp_in_process_reader(task_t task, vm_address_t address, vm_
     return KERN_SUCCESS;
 }
 
+// Reads through the kernel, so an unmapped address returns false instead of faulting.
+static bool mp_is_readable(const void *pointer, size_t size) {
+    if (pointer == NULL) {
+        return false;
+    }
+    uint8_t buffer[512];
+    vm_size_t length = size < sizeof(buffer) ? size : sizeof(buffer);
+    vm_size_t copied = 0;
+    kern_return_t result = vm_read_overwrite(mach_task_self(), (vm_address_t)pointer, length,
+                                             (vm_address_t)buffer, &copied);
+    return result == KERN_SUCCESS && copied == length;
+}
+
+static const void *mp_code_address(const void *function) {
+#if __has_feature(ptrauth_calls)
+    return ptrauth_strip(function, ptrauth_key_function_pointer);
+#else
+    return function;
+#endif
+}
+
+// Zones registered by other allocators are not guaranteed to be well formed; a zone is walked only
+// when its structures and the three functions the walk calls are readable.
 static bool mp_zone_is_walkable(const malloc_zone_t *zone) {
-    if (zone == NULL || zone->introspect == NULL) {
+    if (!mp_is_readable(zone, sizeof(malloc_zone_t)) || !mp_is_readable(zone->introspect, sizeof(malloc_introspection_t))) {
         return false;
     }
     const malloc_introspection_t *introspect = zone->introspect;
-    return introspect->enumerator != NULL && introspect->force_lock != NULL && introspect->force_unlock != NULL;
+    return mp_is_readable(mp_code_address((const void *)introspect->enumerator), sizeof(void *))
+        && mp_is_readable(mp_code_address((const void *)introspect->force_lock), sizeof(void *))
+        && mp_is_readable(mp_code_address((const void *)introspect->force_unlock), sizeof(void *));
 }
 
 bool mp_heap_walker_is_available(void) {

@@ -29,7 +29,7 @@ public struct MemoryStats: Sendable, Equatable, Codable {
 
     /// The process memory limit (footprint plus available memory). `nil` when unknown.
     public var limit: UInt64? {
-        availableBeforeLimit.map { footprint + $0 }
+        availableBeforeLimit.map { footprint.saturatingAdding($0) }
     }
 
     /// Footprint as a fraction (0...1) of the memory limit. `nil` when the limit is unknown.

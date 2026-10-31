@@ -26,12 +26,12 @@ public struct HeapCensus: Sendable, Equatable {
 
     /// Live instances across all entries.
     public var totalInstances: Int {
-        entries.reduce(0) { $0 + $1.instanceCount }
+        entries.reduce(0) { $0.saturatingAdding($1.instanceCount) }
     }
 
     /// Bytes held across all entries.
     public var totalBytes: UInt64 {
-        entries.reduce(0) { $0 + $1.totalBytes }
+        entries.reduce(0) { $0.saturatingAdding($1.totalBytes) }
     }
 
     // MARK: - Initialization

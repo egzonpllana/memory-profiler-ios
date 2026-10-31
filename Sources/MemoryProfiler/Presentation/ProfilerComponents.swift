@@ -84,12 +84,14 @@ struct ProfilerComponents: Sendable {
         diagnostics.updatePolicy(configuration.leakDetection.alertPolicy)
     }
 
-    /// Starts monitoring, growth sampling and automatic tracking.
-    func start(with configuration: MemoryProfilerConfiguration) {
+    /// Starts monitoring, growth sampling and automatic tracking. Calls no client code.
+    func start(with configuration: MemoryProfilerConfiguration) -> AllocationGrowthStartResult {
         monitoring.start(with: configuration.monitoring)
-        allocationGrowth.start(with: configuration.allocationGrowth)
-        guard !configuration.leakDetection.automaticTracking.isEmpty else { return }
-        automaticTracking.attach(leakDetector, configuration: configuration.leakDetection)
+        let growth = allocationGrowth.start(with: configuration.allocationGrowth)
+        if !configuration.leakDetection.automaticTracking.isEmpty {
+            automaticTracking.attach(leakDetector, configuration: configuration.leakDetection)
+        }
+        return growth
     }
 
     /// Stops everything `start(with:)` started.

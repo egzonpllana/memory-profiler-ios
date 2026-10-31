@@ -10,6 +10,8 @@ import Foundation
 /// Thread-safe registry of deallocation expectations.
 ///
 /// Keys are disguised addresses so the registry never holds a raw pointer to a tracked object.
+/// No weak reference is ever loaded under the lock: a temporary strong reference released there
+/// could run a `deinit` that calls back into the store and re-enters the lock.
 final class DeallocationExpectationStore: Sendable {
 
     // MARK: - Types
@@ -26,24 +28,20 @@ final class DeallocationExpectationStore: Sendable {
 
     // MARK: - Registration
 
-    /// Whether `object` already has a live expectation.
-    func isTracking(_ object: AnyObject, at address: DisguisedAddress) -> Bool {
-        registry.withLock { Self.liveToken(for: object, at: address, in: $0) != nil }
+    /// Whether an object at `address` already has an expectation.
+    ///
+    /// Two live objects never share an address, and a sentinel-observed expectation is removed
+    /// before its object's memory is freed, so an existing entry means the same object.
+    func isTracking(_ address: DisguisedAddress) -> Bool {
+        registry.withLock { $0.tokensByAddress[address] != nil }
     }
 
-    /// Registers the expectation built by `make` unless `object` is already tracked.
+    /// Registers the expectation built by `make` unless the address is already tracked.
     ///
     /// - Returns: The new token, or `nil` for a duplicate.
-    func register(
-        _ object: AnyObject,
-        at address: DisguisedAddress,
-        make: (UInt64) -> DeallocationExpectation
-    ) -> UInt64? {
+    func register(at address: DisguisedAddress, make: (UInt64) -> DeallocationExpectation) -> UInt64? {
         registry.withLock { registry in
-            guard Self.liveToken(for: object, at: address, in: registry) == nil else { return nil }
-            if let staleToken = registry.tokensByAddress[address] {
-                registry.entries[staleToken] = nil
-            }
+            guard registry.tokensByAddress[address] == nil else { return nil }
             let token = registry.nextToken
             registry.nextToken += 1
             registry.entries[token] = make(token)
@@ -74,7 +72,7 @@ final class DeallocationExpectationStore: Sendable {
 
     /// Heap addresses of the weak boxes, excluded from referrer scans.
     func boxAddresses() -> [UInt] {
-        registry.withLock { $0.entries.values.map(\.box.address) }
+        registry.withLock { $0.entries.values.flatMap(\.boxAddresses) }
     }
 
     // MARK: - Mutations
@@ -114,24 +112,14 @@ final class DeallocationExpectationStore: Sendable {
         }
     }
 
-    /// Removes every expectation.
+    /// Removes every expectation. The entries are released after the lock is dropped.
     func removeAll() {
-        registry.withLock { registry in
+        let removed = registry.withLock { registry -> [UInt64: DeallocationExpectation] in
+            let entries = registry.entries
             registry.entries.removeAll()
             registry.tokensByAddress.removeAll()
+            return entries
         }
-    }
-
-    // MARK: - Private Methods
-
-    private static func liveToken(
-        for object: AnyObject,
-        at address: DisguisedAddress,
-        in registry: Registry
-    ) -> UInt64? {
-        guard let token = registry.tokensByAddress[address],
-              let entry = registry.entries[token],
-              entry.box.object === object else { return nil }
-        return token
+        _ = removed
     }
 }

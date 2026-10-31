@@ -41,21 +41,20 @@ final class LeakDetectionEngine: LeakDetecting {
         let address = DisguisedAddress(address: dependencies.inspector.address(of: object))
         guard descriptor.allocationSize > 0,
               !LeakExemptionPolicy.isExempt(object, typeName: descriptor.typeName, filter: configuration.filter),
-              !store.isTracking(object, at: address) else { return }
-        let context = makeContext(for: request, capturesCallStack: configuration.diagnostics.capturesCallStack)
-        let token = store.register(object, at: address) { token in
-            DeallocationExpectation(
-                token: token,
-                box: WeakObjectBox(object),
-                address: address,
-                descriptor: descriptor,
-                request: request,
-                context: context,
-                phase: .pending
-            )
+              !store.isTracking(address) else { return }
+        let draft = ExpectationDraft(
+            address: address,
+            descriptor: descriptor,
+            request: request,
+            context: makeContext(for: request, capturesCallStack: configuration.diagnostics.capturesCallStack)
+        )
+        let isObservable = dependencies.deallocationObserver.canObserveDeallocation(of: object)
+        let token = store.register(at: address) {
+            draft.expectation(token: $0, object: object, isObservable: isObservable)
         }
         guard let token else { return }
-        schedule(token, for: object, gracePeriod: request.gracePeriod ?? configuration.gracePeriod)
+        let gracePeriod = request.gracePeriod ?? configuration.gracePeriod
+        schedule(token, for: object, observingDeallocation: isObservable, gracePeriod: gracePeriod)
     }
 
     func trackInstance(_ object: AnyObject, budget: Int, location: SourceLocation) {
@@ -84,23 +83,27 @@ final class LeakDetectionEngine: LeakDetecting {
         )
     }
 
-    private func schedule(_ token: UInt64, for object: AnyObject, gracePeriod: Duration) {
-        dependencies.deallocationObserver.observeDeallocation(of: object) { [weak self] in
-            self?.handleDeallocation(of: token)
+    private func schedule(
+        _ token: UInt64,
+        for object: AnyObject,
+        observingDeallocation: Bool,
+        gracePeriod: Duration
+    ) {
+        if observingDeallocation {
+            dependencies.deallocationObserver.observeDeallocation(of: object) { [weak self] in
+                self?.handleDeallocation(of: token)
+            }
         }
         dependencies.delayedExecutor.executeOnMain(after: gracePeriod) { [weak self] in
             self?.evaluateDeadline(of: token)
         }
     }
 
-    /// Runs on the main thread, so releasing the temporary strong reference is always main-thread safe.
+    /// Runs on the main thread, so a temporary strong reference taken by a weak load is always
+    /// released on the main thread, which UIKit objects require.
     private func evaluateDeadline(of token: UInt64) {
         guard let expectation = store.pendingExpectation(for: token) else { return }
-        guard let object = expectation.box.object else {
-            store.remove(token)
-            return
-        }
-        if expectation.request.usageProbe?.isObjectInUse(object) == true {
+        guard expectation.liveness.mayBeAlive, !expectation.isBackInUse else {
             store.remove(token)
             return
         }

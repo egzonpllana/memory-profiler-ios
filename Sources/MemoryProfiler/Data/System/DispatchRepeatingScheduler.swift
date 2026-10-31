@@ -15,6 +15,9 @@ final class DispatchRepeatingScheduler: RepeatingScheduling {
 
     // MARK: - Properties
 
+    private static let minimumInterval = Duration.milliseconds(100)
+    private static let maximumLeeway = Duration.seconds(60)
+
     private let queue: DispatchQueue
     private let timer = LockedState<(any DispatchSourceTimer)?>(nil)
 
@@ -36,8 +39,9 @@ final class DispatchRepeatingScheduler: RepeatingScheduling {
 
     func start(interval: Duration, handler: @escaping @Sendable () -> Void) {
         let newTimer = DispatchSource.makeTimerSource(queue: queue)
-        let seconds = max(interval.timeInterval, 0.1)
-        newTimer.schedule(deadline: .now(), repeating: seconds, leeway: .milliseconds(Int(seconds * 100)))
+        let period = max(interval, Self.minimumInterval)
+        let leeway = min(period / 10, Self.maximumLeeway)
+        newTimer.schedule(deadline: .now(), repeating: period.dispatchInterval, leeway: leeway.dispatchInterval)
         newTimer.setEventHandler(handler: handler)
         let previous = timer.withLock { current -> (any DispatchSourceTimer)? in
             let replaced = current

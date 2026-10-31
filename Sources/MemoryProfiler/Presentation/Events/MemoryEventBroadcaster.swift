@@ -60,7 +60,7 @@ final class MemoryEventBroadcaster: MemoryEventPublishing {
         let identifier = UUID()
         subscribers.withLock { $0.continuations[identifier] = continuation }
         continuation.onTermination = { [subscribers] _ in
-            subscribers.withLock { $0.continuations[identifier] = nil }
+            _ = subscribers.withLock { $0.continuations.removeValue(forKey: identifier) }
         }
         return stream
     }
@@ -70,8 +70,10 @@ final class MemoryEventBroadcaster: MemoryEventPublishing {
     func addHandler(_ handler: @escaping @Sendable (MemoryProfilerEvent) -> Void) -> EventSubscription {
         let identifier = UUID()
         subscribers.withLock { $0.handlers[identifier] = handler }
+        // The removed handler is returned out of the lock and released after it: releasing it
+        // inside could run a captured object's deinit that calls back into the broadcaster.
         return EventSubscription { [subscribers] in
-            subscribers.withLock { $0.handlers[identifier] = nil }
+            _ = subscribers.withLock { $0.handlers.removeValue(forKey: identifier) }
         }
     }
 }

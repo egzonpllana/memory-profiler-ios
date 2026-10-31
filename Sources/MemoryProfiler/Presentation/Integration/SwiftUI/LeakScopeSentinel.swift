@@ -38,12 +38,12 @@ final class LeakScopeSentinel: Sendable {
     /// Records the targets to check when the view goes away. Targets dropped by a re-arm,
     /// such as a replaced view model, are expected to deallocate right away.
     func arm(targets: [WeakObjectBox], profiler: any MemoryProfilerServicing, location: SourceLocation) {
-        let previous = scope.withLock { scope -> [WeakObjectBox] in
-            let replaced = scope.targets
+        let previous = scope.withLock { scope -> Scope in
+            let replaced = scope
             scope = Scope(targets: targets, profiler: profiler, location: location)
             return replaced
         }
-        let dropped = previous.filter { box in
+        let dropped = previous.targets.filter { box in
             guard let object = box.object else { return false }
             return !targets.contains { $0.object === object }
         }

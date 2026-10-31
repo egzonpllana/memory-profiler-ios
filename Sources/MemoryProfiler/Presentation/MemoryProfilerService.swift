@@ -22,6 +22,7 @@ public final class MemoryProfilerService: MemoryProfilerServicing {
     let serviceState: LockedState<ServiceState>
 
     /// Serializes start, stop, enable, disable and configure so state and components never diverge.
+    /// Client code (the logger) is never called while it is held, so a logger may call back in.
     private let transitionLock = LockedState(())
 
     public var state: MonitoringState {
@@ -58,35 +59,36 @@ public final class MemoryProfilerService: MemoryProfilerServicing {
     // MARK: - Lifecycle
 
     public func configure(_ configuration: MemoryProfilerConfiguration) {
-        transitionLock.withLock { _ in
+        let growth = transitionLock.withLock { _ -> AllocationGrowthStartResult in
             let status = serviceState.withLock { state -> MonitoringState in
                 state.configuration = configuration
                 return state.status
             }
             components.apply(configuration)
-            guard status == .monitoring else { return }
+            guard status == .monitoring else { return .disabled }
             components.stop()
             guard configuration.environment.isActiveInCurrentBuild else {
                 serviceState.withLock { $0.status = .idle }
-                return
+                return .disabled
             }
-            components.start(with: configuration)
+            return components.start(with: configuration)
         }
         log("Configuration updated.")
+        logGrowthAvailability(growth)
     }
 
     public func start() {
-        let started = transitionLock.withLock { _ -> Bool in
+        let growth = transitionLock.withLock { _ -> AllocationGrowthStartResult? in
             let current = serviceState.value
             guard current.status == .idle,
-                  current.configuration.environment.isActiveInCurrentBuild else { return false }
-            components.start(with: current.configuration)
+                  current.configuration.environment.isActiveInCurrentBuild else { return nil }
+            let growth = components.start(with: current.configuration)
             serviceState.withLock { $0.status = .monitoring }
-            return true
+            return growth
         }
-        if started {
-            log("Started monitoring.")
-        }
+        guard let growth else { return }
+        log("Started monitoring.")
+        logGrowthAvailability(growth)
     }
 
     public func stop() {
@@ -134,5 +136,14 @@ public final class MemoryProfilerService: MemoryProfilerServicing {
 
     private func log(_ message: String) {
         components.logger.log(message, level: .info, category: .lifecycle)
+    }
+
+    private func logGrowthAvailability(_ result: AllocationGrowthStartResult) {
+        guard result == .unavailable else { return }
+        components.logger.log(
+            "Allocation growth detection is unavailable: heap introspection is compiled into debug builds only.",
+            level: .warning,
+            category: .heap
+        )
     }
 }
